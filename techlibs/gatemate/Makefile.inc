@@ -14,6 +14,7 @@ $(eval $(call add_share_file,share/gatemate,techlibs/gatemate/brams.txt))
 $(eval $(call add_share_file,share/gatemate,techlibs/gatemate/brams_init_20.vh))
 $(eval $(call add_share_file,share/gatemate,techlibs/gatemate/brams_init_40.vh))
 $(eval $(call add_share_file,share/gatemate,techlibs/gatemate/inv_map.v))
+$(eval $(call add_share_file,share/gatemate,techlibs/gatemate/serdes_defs.vh))
 
 EXTRA_OBJS += techlibs/gatemate/lut_tree_lib.mk
 .SECONDARY: techlibs/gatemate/lut_tree_lib.mk

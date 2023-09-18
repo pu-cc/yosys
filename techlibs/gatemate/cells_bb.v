@@ -50,6 +50,7 @@ endmodule
 
 (* blackbox *) (* keep *)
 module CC_SERDES #(
+	`include "serdes_defs.vh"
 	parameter SERDES_CFG = ""
 )(
 	input [63:0] TX_DATA_I,
