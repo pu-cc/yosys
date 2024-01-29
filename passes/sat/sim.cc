@@ -88,6 +88,17 @@ struct TriggeredAssertion {
 	{ }
 };
 
+struct DisplayOutput {
+	int step;
+	SimInstance *instance;
+	Cell *cell;
+	std::string output;
+
+	DisplayOutput(int step, SimInstance *instance, Cell *cell, std::string output) :
+		step(step), instance(instance), cell(cell), output(output)
+	{ }
+};
+
 struct SimShared
 {
 	bool debug = false;
@@ -110,7 +121,9 @@ struct SimShared
 	int next_output_id = 0;
 	int step = 0;
 	std::vector<TriggeredAssertion> triggered_assertions;
+	std::vector<DisplayOutput> display_output;
 	bool serious_asserts = false;
+	bool initstate = true;
 };
 
 void zinit(State &v)
@@ -172,6 +185,7 @@ struct SimInstance
 
 	struct print_state_t
 	{
+		bool initial_done;
 		Const past_trg;
 		Const past_en;
 		Const past_args;
@@ -218,8 +232,12 @@ struct SimInstance
 		log_assert(module);
 
 		if (module->get_blackbox_attribute(true))
-			log_error("Cannot simulate blackbox module %s (instanced at %s).\n",
+			log_error("Cannot simulate blackbox module %s (instantiated at %s).\n",
 					  log_id(module->name), hiername().c_str());
+
+		if (module->has_processes())
+			log_error("Found processes in simulation hierarchy (in module %s at %s). Run 'proc' first.\n",
+					  log_id(module), hiername().c_str());
 
 		if (parent) {
 			log_assert(parent->children.count(instance) == 0);
@@ -333,6 +351,7 @@ struct SimInstance
 				print.past_trg = Const(State::Sx, cell->getPort(ID::TRG).size());
 				print.past_args = Const(State::Sx, cell->getPort(ID::ARGS).size());
 				print.past_en = State::Sx;
+				print.initial_done = false;
 			}
 		}
 
@@ -578,7 +597,7 @@ struct SimInstance
 			Const data = Const(State::Sx, mem.width << port.wide_log2);
 
 			if (port.clk_enable)
-				log_error("Memory %s.%s has clocked read ports. Run 'memory' with -nordff.\n", log_id(module), log_id(mem.memid));
+				log_error("Memory %s.%s has clocked read ports. Run 'memory_nordff' to transform the circuit to remove those.\n", log_id(module), log_id(mem.memid));
 
 			if (addr.is_fully_def()) {
 				int addr_int = addr.as_int();
@@ -770,6 +789,30 @@ struct SimInstance
 		return did_something;
 	}
 
+	static void log_source(RTLIL::AttrObject *src)
+	{
+		for (auto src : src->get_strpool_attribute(ID::src))
+			log("    %s\n", src.c_str());
+	}
+
+	void log_cell_w_hierarchy(std::string opening_verbiage, RTLIL::Cell *cell)
+	{
+		log_assert(cell->module == module);
+		bool has_src = cell->has_attribute(ID::src);
+		log("%s %s%s\n", opening_verbiage.c_str(),
+			log_id(cell), has_src ? " at" : "");
+		log_source(cell);
+
+		struct SimInstance *sim = this;
+		while (sim->instance) {
+			has_src = sim->instance->has_attribute(ID::src);
+			log("  in instance %s of module %s%s\n", log_id(sim->instance),
+				log_id(sim->instance->type), has_src ? " at" : "");
+			log_source(sim->instance);
+			sim = sim->parent;
+		}
+	}
+
 	void update_ph3(bool check_assertions)
 	{
 		for (auto &it : ff_database)
@@ -811,13 +854,14 @@ struct SimInstance
 			bool triggered = false;
 
 			Const trg = get_state(cell->getPort(ID::TRG));
+			bool trg_en = cell->getParam(ID::TRG_ENABLE).as_bool();
 			Const en = get_state(cell->getPort(ID::EN));
 			Const args = get_state(cell->getPort(ID::ARGS));
 
 			if (!en.as_bool())
 				goto update_print;
 
-			if (cell->getParam(ID::TRG_ENABLE).as_bool()) {
+			if (trg.size() > 0 && trg_en) {
 				Const trg_pol = cell->getParam(ID::TRG_POLARITY);
 				for (int i = 0; i < trg.size(); i++) {
 					bool pol = trg_pol[i] == State::S1;
@@ -827,7 +871,12 @@ struct SimInstance
 					if (!pol && curr == State::S0 && past == State::S1)
 						triggered = true;
 				}
+			} else if (trg_en) {
+				// initial $print (TRG width = 0, TRG_ENABLE = true)
+				if (!print.initial_done && en != print.past_en)
+					triggered = true;
 			} else {
+				// always @(*) $print
 				if (args != print.past_args || en != print.past_en)
 					triggered = true;
 			}
@@ -841,12 +890,14 @@ struct SimInstance
 
 				std::string rendered = print.fmt.render();
 				log("%s", rendered.c_str());
+				shared->display_output.emplace_back(shared->step, this, cell, rendered);
 			}
 
 		update_print:
 			print.past_trg = trg;
 			print.past_en = en;
 			print.past_args = args;
+			print.initial_done = true;
 		}
 
 		if (check_assertions)
@@ -871,10 +922,11 @@ struct SimInstance
 					log("Assumption %s.%s (%s) failed.\n", hiername().c_str(), log_id(cell), label.c_str());
 
 				if (cell->type == ID($assert) && en == State::S1 && a != State::S1) {
+					log_cell_w_hierarchy("Failed assertion", cell);
 					if (shared->serious_asserts)
-						log_error("Assert %s.%s (%s) failed.\n", hiername().c_str(), log_id(cell), label.c_str());
+						log_error("Assertion %s.%s (%s) failed.\n", hiername().c_str(), log_id(cell), label.c_str());
 					else
-						log_warning("Assert %s.%s (%s) failed.\n", hiername().c_str(), log_id(cell), label.c_str());
+						log_warning("Assertion %s.%s (%s) failed.\n", hiername().c_str(), log_id(cell), label.c_str());
 				}
 			}
 		}
@@ -1356,6 +1408,8 @@ struct SimWorker : SimShared
 		set_inports(clock, State::Sx);
 		set_inports(clockn, State::Sx);
 
+		top->set_initstate_outputs(initstate ? State::S1 : State::S0);
+
 		update(false);
 
 		register_output_step(0);
@@ -1371,6 +1425,9 @@ struct SimWorker : SimShared
 
 			update(true);
 			register_output_step(10*cycle + 5);
+
+			if (cycle == 0)
+				top->set_initstate_outputs(State::S0);
 
 			if (debug)
 				log("\n===== %d =====\n", 10*cycle + 10);
@@ -1953,7 +2010,7 @@ struct SimWorker : SimShared
 		if (yw.steps.empty()) {
 			log_warning("Yosys witness file `%s` contains no time steps\n", yw.filename.c_str());
 		} else {
-			top->set_initstate_outputs(State::S1);
+			top->set_initstate_outputs(initstate ? State::S1 : State::S0);
 			set_yw_state(yw, hierarchy, 0);
 			set_yw_clocks(yw, hierarchy, true);
 			initialize_stable_past();
@@ -2017,6 +2074,20 @@ struct SimWorker : SimShared
 			if (!src.empty()) {
 				json.entry("src", src);
 			}
+			json.end_object();
+		}
+		json.end_array();
+		json.name("display_output");
+		json.begin_array();
+		for (auto &output : display_output) {
+			json.begin_object();
+			json.entry("step", output.step);
+			json.entry("path", output.instance->witness_full_path(output.cell));
+			auto src = output.cell->get_string_attribute(ID::src);
+			if (!src.empty()) {
+				json.entry("src", src);
+			}
+			json.entry("output", output.output);
 			json.end_object();
 		}
 		json.end_array();
@@ -2546,6 +2617,9 @@ struct SimPass : public Pass {
 		log("    -n <integer>\n");
 		log("        number of clock cycles to simulate (default: 20)\n");
 		log("\n");
+		log("    -noinitstate\n");
+		log("        do not activate $initstate cells during the first cycle\n");
+		log("\n");
 		log("    -a\n");
 		log("        use all nets in VCD/FST operations, not just those with public names\n");
 		log("\n");
@@ -2644,6 +2718,10 @@ struct SimPass : public Pass {
 			if (args[argidx] == "-n" && argidx+1 < args.size()) {
 				numcycles = atoi(args[++argidx].c_str());
 				worker.cycles_set = true;
+				continue;
+			}
+			if (args[argidx] == "-noinitstate") {
+				worker.initstate = false;
 				continue;
 			}
 			if (args[argidx] == "-rstlen" && argidx+1 < args.size()) {
