@@ -283,7 +283,7 @@ struct SynthGateMatePass : public ScriptPass
 		if (check_label("map_regs"))
 		{
 			run("opt_clean");
-			run("dfflegalize -cell $_SDFFE_????_ 01 -cell $_DFFE_????_ 01 -cell $_DLATCH_???_ 01");
+			run("dfflegalize -cell $_SDFFCE_????_ r -cell $_DFFE_????_ r -cell $_DLATCH_???_ 01");
 			run("techmap -map +/gatemate/reg_map.v");
 			run("opt_expr -undriven -mux_undef");
 			run("simplemap");

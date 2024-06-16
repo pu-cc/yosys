@@ -52,8 +52,8 @@ module \$_DLATCH_xxx_ (input E, R, D, output Q);
 	wire _TECHMAP_REMOVEINIT_Q_ = 1;
 endmodule
 
-(* techmap_celltype = "$_SDFFE_[NP][NP][01][NP]_" *)
-module \$_SDFFE_xxxx_ (input D, C, R, E, output Q);
+(* techmap_celltype = "$_SDFFCE_[NP][NP][01][NP]_" *)
+module \$_SDFFCE_xxxx_ (input D, C, R, E, output Q);
 
 	parameter _TECHMAP_CELLTYPE_ = "";
 	parameter _TECHMAP_WIREINIT_Q_ = 1'bx;
