@@ -23,12 +23,14 @@ module \$_DFFE_xxxx_ (input D, C, R, E, output Q);
 	parameter _TECHMAP_CELLTYPE_ = "";
 	parameter _TECHMAP_WIREINIT_Q_ = 1'bx;
 
+	parameter SR_VAL = _TECHMAP_CELLTYPE_[23:16] == "1";
+
 	CC_DFF #(
 		.CLK_INV(_TECHMAP_CELLTYPE_[39:32] == "N"),
 		.EN_INV(_TECHMAP_CELLTYPE_[15:8] == "N"),
 		.SR_INV(_TECHMAP_CELLTYPE_[31:24] == "N"),
-		.SR_VAL(_TECHMAP_CELLTYPE_[23:16] == "1"),
-		.INIT(_TECHMAP_WIREINIT_Q_)
+		.SR_VAL(SR_VAL),
+		.INIT((_TECHMAP_WIREINIT_Q_ === 1'bx) ? SR_VAL : _TECHMAP_WIREINIT_Q_)
 	) _TECHMAP_REPLACE_ (.D(D), .EN(E), .CLK(C), .SR(R), .Q(Q));
 
 	wire _TECHMAP_REMOVEINIT_Q_ = 1;
@@ -46,6 +48,28 @@ module \$_DLATCH_xxx_ (input E, R, D, output Q);
 		.SR_VAL(_TECHMAP_CELLTYPE_[15:8] == "1"),
 		.INIT(_TECHMAP_WIREINIT_Q_)
 	) _TECHMAP_REPLACE_ (.D(D), .G(E), .SR(R), .Q(Q));
+
+	wire _TECHMAP_REMOVEINIT_Q_ = 1;
+endmodule
+
+(* techmap_celltype = "$_SDFFE_[NP][NP][01][NP]_" *)
+module \$_SDFFE_xxxx_ (input D, C, R, E, output Q);
+
+	parameter _TECHMAP_CELLTYPE_ = "";
+	parameter _TECHMAP_WIREINIT_Q_ = 1'bx;
+
+	parameter SR_INV = _TECHMAP_CELLTYPE_[31:24] == "N";
+	parameter SR_VAL = _TECHMAP_CELLTYPE_[23:16] == "1";
+
+	wire din = (R^SR_INV) ? SR_VAL : D;
+
+	CC_DFF #(
+		.CLK_INV(_TECHMAP_CELLTYPE_[39:32] == "N"),
+		.EN_INV(_TECHMAP_CELLTYPE_[15:8] == "N"),
+		.SR_INV(1'b0),
+		.SR_VAL(1'b0),
+		.INIT((_TECHMAP_WIREINIT_Q_ === 1'bx) ? SR_VAL : _TECHMAP_WIREINIT_Q_)
+	) _TECHMAP_REPLACE_ (.D(din), .EN(E), .CLK(C), .SR(1'b0), .Q(Q));
 
 	wire _TECHMAP_REMOVEINIT_Q_ = 1;
 endmodule
